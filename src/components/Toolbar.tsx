@@ -1,219 +1,354 @@
-import React from 'react';
-import { CartonDimensions } from '../core/types';
+import React, { useState, useEffect, useRef } from 'react';
+import { CartonDimensions, Locale, StudyDiagnosticCode } from '../core/types';
+import { MIN_DIMENSION, MAX_DIMENSION, MIN_FOLD_TICKS, MAX_FOLD_TICKS, validateDimensions, validateFoldTicks } from '../core/validator';
+import { STUDY_PRESETS, UI_TEXT } from '../core/i18n';
 
 interface ToolbarProps {
+  locale: Locale;
   dimensions: CartonDimensions;
   foldTicks: number;
   onDimensionsChange: (dims: CartonDimensions) => void;
   onFoldTicksChange: (ticks: number) => void;
+  onApplyPreset: (dims: CartonDimensions, foldTicks: number) => void;
+  onValidationError: (code: StudyDiagnosticCode) => void;
+  onClearError: () => void;
   onExportSvg: () => void;
   onExportJson: () => void;
+  onImportJsonFile: (file: File) => void;
   onReset: () => void;
 }
 
 export const Toolbar: React.FC<ToolbarProps> = ({
+  locale,
   dimensions,
   foldTicks,
   onDimensionsChange,
   onFoldTicksChange,
+  onApplyPreset,
+  onValidationError,
+  onClearError,
   onExportSvg,
   onExportJson,
+  onImportJsonFile,
   onReset
 }) => {
-  const presets = [
-    { label: 'Padrão (120×80×40)', dims: { width: 120, depth: 80, height: 40 } },
-    { label: 'Cubo (100×100×100)', dims: { width: 100, depth: 100, height: 100 } },
-    { label: 'Alta (80×80×160)', dims: { width: 80, depth: 80, height: 160 } },
-    { label: 'Plana (200×140×30)', dims: { width: 200, depth: 140, height: 30 } }
-  ];
+  const t = UI_TEXT[locale];
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const [draftWidth, setDraftWidth] = useState<string>(String(dimensions.width));
+  const [draftDepth, setDraftDepth] = useState<string>(String(dimensions.depth));
+  const [draftHeight, setDraftHeight] = useState<string>(String(dimensions.height));
+  const [draftFold, setDraftFold] = useState<string>(String(foldTicks));
+
+  useEffect(() => {
+    setDraftWidth(String(dimensions.width));
+    setDraftDepth(String(dimensions.depth));
+    setDraftHeight(String(dimensions.height));
+  }, [dimensions.width, dimensions.depth, dimensions.height]);
+
+  useEffect(() => {
+    setDraftFold(String(foldTicks));
+  }, [foldTicks]);
+
+  const commitDimensionField = (field: keyof CartonDimensions, raw: string) => {
+    const parsed = Number(raw.trim());
+    const candidate: CartonDimensions = {
+      ...dimensions,
+      [field]: parsed
+    };
+    const err = validateDimensions(candidate);
+    if (err || raw.trim() === '') {
+      onValidationError('INVALID_DIMENSIONS');
+      return;
+    }
+    onClearError();
+    onDimensionsChange(candidate);
+  };
+
+  const handleApplyAllDimensions = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (draftWidth.trim() === '' || draftDepth.trim() === '' || draftHeight.trim() === '') {
+      onValidationError('INVALID_DIMENSIONS');
+      return;
+    }
+    const candidate: CartonDimensions = {
+      width: Number(draftWidth.trim()),
+      depth: Number(draftDepth.trim()),
+      height: Number(draftHeight.trim())
+    };
+    const err = validateDimensions(candidate);
+    if (err) {
+      onValidationError('INVALID_DIMENSIONS');
+      return;
+    }
+    onClearError();
+    onDimensionsChange(candidate);
+  };
+
+  const commitFoldInput = (raw: string) => {
+    const parsed = Number(raw.trim());
+    const err = validateFoldTicks(parsed);
+    if (err || raw.trim() === '') {
+      onValidationError('INVALID_FOLD_TICKS');
+      return;
+    }
+    onClearError();
+    onFoldTicksChange(parsed);
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      onImportJsonFile(file);
+      e.target.value = '';
+    }
+  };
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '12px',
-      padding: '16px',
-      backgroundColor: '#ffffff',
-      borderRadius: '8px',
-      border: '1px solid #e2e8f0',
-      boxShadow: '0 1px 3px rgba(0,0,0,0.05)'
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h2 style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: '#1e293b' }}>
-          Parâmetros da Caixa (mm)
-        </h2>
+    <div className="chs-card" data-testid="parameter-toolbar">
+      <div className="chs-card-header">
+        <h2 className="chs-card-title">{t.toolbarTitle}</h2>
         <button
-          onClick={onReset}
-          style={{
-            padding: '4px 8px',
-            fontSize: '12px',
-            background: '#f1f5f9',
-            border: '1px solid #cbd5e1',
-            borderRadius: '4px',
-            cursor: 'pointer'
+          type="button"
+          onClick={() => {
+            setDraftWidth(String(dimensions.width)); setDraftDepth(String(dimensions.depth));
+            setDraftHeight(String(dimensions.height)); setDraftFold(String(foldTicks));
+            onReset();
           }}
+          className="chs-btn"
+          data-testid="reset-study-button"
         >
-          Redefinir
+          {t.resetButton}
         </button>
       </div>
 
-      {/* Dimension Sliders */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-        <div>
-          <label style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>
-            Largura (W): {dimensions.width}
-          </label>
-          <input
-            type="range"
-            min={20}
-            max={300}
-            value={dimensions.width}
-            onChange={e => onDimensionsChange({ ...dimensions, width: parseInt(e.target.value, 10) })}
-            style={{ width: '100%' }}
-          />
-        </div>
-        <div>
-          <label style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>
-            Profundidade (D): {dimensions.depth}
-          </label>
-          <input
-            type="range"
-            min={20}
-            max={300}
-            value={dimensions.depth}
-            onChange={e => onDimensionsChange({ ...dimensions, depth: parseInt(e.target.value, 10) })}
-            style={{ width: '100%' }}
-          />
-        </div>
-        <div>
-          <label style={{ fontSize: '12px', fontWeight: 500, color: '#64748b' }}>
-            Altura (H): {dimensions.height}
-          </label>
-          <input
-            type="range"
-            min={20}
-            max={300}
-            value={dimensions.height}
-            onChange={e => onDimensionsChange({ ...dimensions, height: parseInt(e.target.value, 10) })}
-            style={{ width: '100%' }}
-          />
-        </div>
-      </div>
+      {/* Dimension Controls (1..4095 mm) */}
+      <form onSubmit={handleApplyAllDimensions} noValidate>
+        <div className="chs-dim-grid">
+          <div className="chs-field">
+            <label htmlFor="input-width-mm" className="chs-label">
+              {t.widthLabel}
+            </label>
+            <input
+              id="input-width-mm"
+              data-testid="input-width-mm"
+              type="number"
+              min={MIN_DIMENSION}
+              max={MAX_DIMENSION}
+              step={1}
+              value={draftWidth}
+              onChange={e => {
+                setDraftWidth(e.target.value);
+                commitDimensionField('width', e.target.value);
+              }}
+              className="chs-num-input"
+            />
+            <input
+              aria-label={`${t.widthLabel} (${t.rangeLabel})`}
+              type="range"
+              min={MIN_DIMENSION}
+              max={MAX_DIMENSION}
+              value={dimensions.width}
+              onChange={e => {
+                onClearError();
+                onDimensionsChange({ ...dimensions, width: parseInt(e.target.value, 10) });
+              }}
+              className="chs-range-input"
+            />
+          </div>
 
-      {/* Fold State Slider */}
-      <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-          <label style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
-            Dobra das Faces: {(foldTicks / 10).toFixed(1)}% ({((foldTicks / 1000) * 90).toFixed(1)}°)
+          <div className="chs-field">
+            <label htmlFor="input-depth-mm" className="chs-label">
+              {t.depthLabel}
+            </label>
+            <input
+              id="input-depth-mm"
+              data-testid="input-depth-mm"
+              type="number"
+              min={MIN_DIMENSION}
+              max={MAX_DIMENSION}
+              step={1}
+              value={draftDepth}
+              onChange={e => {
+                setDraftDepth(e.target.value);
+                commitDimensionField('depth', e.target.value);
+              }}
+              className="chs-num-input"
+            />
+            <input
+              aria-label={`${t.depthLabel} (${t.rangeLabel})`}
+              type="range"
+              min={MIN_DIMENSION}
+              max={MAX_DIMENSION}
+              value={dimensions.depth}
+              onChange={e => {
+                onClearError();
+                onDimensionsChange({ ...dimensions, depth: parseInt(e.target.value, 10) });
+              }}
+              className="chs-range-input"
+            />
+          </div>
+
+          <div className="chs-field">
+            <label htmlFor="input-height-mm" className="chs-label">
+              {t.heightLabel}
+            </label>
+            <input
+              id="input-height-mm"
+              data-testid="input-height-mm"
+              type="number"
+              min={MIN_DIMENSION}
+              max={MAX_DIMENSION}
+              step={1}
+              value={draftHeight}
+              onChange={e => {
+                setDraftHeight(e.target.value);
+                commitDimensionField('height', e.target.value);
+              }}
+              className="chs-num-input"
+            />
+            <input
+              aria-label={`${t.heightLabel} (${t.rangeLabel})`}
+              type="range"
+              min={MIN_DIMENSION}
+              max={MAX_DIMENSION}
+              value={dimensions.height}
+              onChange={e => {
+                onClearError();
+                onDimensionsChange({ ...dimensions, height: parseInt(e.target.value, 10) });
+              }}
+              className="chs-range-input"
+            />
+          </div>
+        </div>
+      </form>
+
+      {/* Fold State Controls (0..1000 ticks) */}
+      <div style={{ marginBottom: '12px' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center', gap: '6px', marginBottom: '6px' }}>
+          <label htmlFor="input-fold-ticks" style={{ fontSize: '0.875rem', fontWeight: 700 }}>
+            {t.foldProgressLabel}: {(foldTicks / 10).toFixed(1)}% ({((foldTicks / 1000) * 90).toFixed(1)}°)
           </label>
           <div style={{ display: 'flex', gap: '4px' }}>
             <button
-              onClick={() => onFoldTicksChange(0)}
-              style={{
-                padding: '2px 6px',
-                fontSize: '11px',
-                background: foldTicks === 0 ? '#235bd4' : '#f1f5f9',
-                color: foldTicks === 0 ? '#ffffff' : '#334155',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
+              type="button"
+              onClick={() => { onClearError(); onFoldTicksChange(0); }}
+              className={`chs-btn ${foldTicks === 0 ? 'chs-btn-active' : ''}`}
+              data-testid="fold-preset-flat"
             >
-              Plana (0°)
+              {t.foldFlatBtn}
             </button>
             <button
-              onClick={() => onFoldTicksChange(500)}
-              style={{
-                padding: '2px 6px',
-                fontSize: '11px',
-                background: foldTicks === 500 ? '#235bd4' : '#f1f5f9',
-                color: foldTicks === 500 ? '#ffffff' : '#334155',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
+              type="button"
+              onClick={() => { onClearError(); onFoldTicksChange(500); }}
+              className={`chs-btn ${foldTicks === 500 ? 'chs-btn-active' : ''}`}
+              data-testid="fold-preset-half"
             >
-              50% (45°)
+              {t.foldHalfBtn}
             </button>
             <button
-              onClick={() => onFoldTicksChange(1000)}
-              style={{
-                padding: '2px 6px',
-                fontSize: '11px',
-                background: foldTicks === 1000 ? '#235bd4' : '#f1f5f9',
-                color: foldTicks === 1000 ? '#ffffff' : '#334155',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
+              type="button"
+              onClick={() => { onClearError(); onFoldTicksChange(1000); }}
+              className={`chs-btn ${foldTicks === 1000 ? 'chs-btn-active' : ''}`}
+              data-testid="fold-preset-closed"
             >
-              Fechada (90°)
+              {t.foldClosedBtn}
             </button>
           </div>
         </div>
-        <input
-          type="range"
-          min={0}
-          max={1000}
-          step={5}
-          value={foldTicks}
-          onChange={e => onFoldTicksChange(parseInt(e.target.value, 10))}
-          style={{ width: '100%', accentColor: '#235bd4' }}
-        />
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: '8px', alignItems: 'center' }}>
+          <input
+            aria-label={t.foldTicksLabel}
+            data-testid="slider-fold-ticks"
+            type="range"
+            min={MIN_FOLD_TICKS}
+            max={MAX_FOLD_TICKS}
+            step={1}
+            value={foldTicks}
+            onChange={e => {
+              onClearError();
+              onFoldTicksChange(parseInt(e.target.value, 10));
+            }}
+            className="chs-range-input"
+          />
+          <input
+            id="input-fold-ticks"
+            data-testid="input-fold-ticks"
+            type="number"
+            min={MIN_FOLD_TICKS}
+            max={MAX_FOLD_TICKS}
+            step={1}
+            value={draftFold}
+            onChange={e => {
+              setDraftFold(e.target.value);
+              commitFoldInput(e.target.value);
+            }}
+            className="chs-num-input"
+          />
+        </div>
       </div>
 
-      {/* Presets and Actions */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          {presets.map(p => (
+      {/* Example Studies */}
+      <div style={{ marginBottom: '12px' }}>
+        <div className="chs-label" style={{ marginBottom: '6px' }}>{t.presetsHeading}</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+          {STUDY_PRESETS.map(p => (
             <button
-              key={p.label}
-              onClick={() => onDimensionsChange(p.dims)}
-              style={{
-                padding: '4px 8px',
-                fontSize: '11px',
-                backgroundColor: '#f8fafc',
-                border: '1px solid #e2e8f0',
-                borderRadius: '4px',
-                cursor: 'pointer'
+              key={p.id}
+              type="button"
+              title={p.description[locale]}
+              onClick={() => {
+                onClearError();
+                onApplyPreset(
+                  { width: p.width, depth: p.depth, height: p.height },
+                  p.foldTicks
+                );
               }}
+              className="chs-btn"
+              data-testid={`preset-${p.id}`}
             >
-              {p.label}
+              {p.label[locale]}
             </button>
           ))}
         </div>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button
-            onClick={onExportSvg}
-            style={{
-              padding: '6px 12px',
-              fontSize: '12px',
-              fontWeight: 500,
-              backgroundColor: '#235bd4',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            Exportar SVG
-          </button>
-          <button
-            onClick={onExportJson}
-            style={{
-              padding: '6px 12px',
-              fontSize: '12px',
-              fontWeight: 500,
-              backgroundColor: '#0f172a',
-              color: '#ffffff',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            Exportar JSON
-          </button>
-        </div>
+      </div>
+
+      {/* Portable Study Import / Export */}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', paddingTop: '8px', borderTop: '1px solid #eef2f5' }}>
+        <button
+          type="button"
+          onClick={onExportSvg}
+          className="chs-btn chs-btn-primary"
+          data-testid="export-svg-button"
+        >
+          {t.exportSvgBtn}
+        </button>
+        <button
+          type="button"
+          onClick={onExportJson}
+          className="chs-btn chs-btn-dark"
+          data-testid="export-json-button"
+        >
+          {t.exportJsonBtn}
+        </button>
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="chs-btn"
+          data-testid="import-json-trigger"
+        >
+          {t.importJsonBtn}
+        </button>
+        <input
+          ref={fileInputRef}
+          data-testid="import-json-input"
+          type="file"
+          accept=".json,application/json"
+          onChange={handleFileChange}
+          style={{ display: 'none' }}
+          aria-label={t.importJsonBtn}
+        />
       </div>
     </div>
   );

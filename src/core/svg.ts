@@ -1,6 +1,35 @@
-import { CartonStudy, FaceId } from './types';
+import { CartonStudy } from './types';
+import { validateDimensions, validateFoldTicks, verifyNumericalDeterminacy } from './validator';
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
 
 export function generateSvgNet(study: CartonStudy, margin = 20): string {
+  if (!study || study.status !== 'ValidStudy') {
+    throw new Error(`Refusing SVG export for non-valid study status: ${study?.status ?? 'unknown'}`);
+  }
+  const dimErr = validateDimensions(study.dimensions);
+  if (dimErr) {
+    throw new Error(`Refusing SVG export: ${dimErr}`);
+  }
+  const foldErr = validateFoldTicks(study.foldTicks);
+  if (foldErr) {
+    throw new Error(`Refusing SVG export: ${foldErr}`);
+  }
+  const numErr = verifyNumericalDeterminacy(study);
+  if (numErr) {
+    throw new Error(`Refusing SVG export due to numerical indeterminacy: ${numErr}`);
+  }
+  if (!Number.isFinite(margin) || margin < 0 || margin > 1000) {
+    throw new Error(`Invalid SVG margin: ${margin}`);
+  }
+
   const { faces, dimensions } = study;
   const { width: W, depth: D, height: H } = dimensions;
 
@@ -33,15 +62,15 @@ export function generateSvgNet(study: CartonStudy, margin = 20): string {
     const centerY = face.cornersNet.reduce((sum, p) => sum + p.y, 0) / 4.0;
 
     faceElements.push(`
-    <!-- Face: ${face.id} -->
-    <polygon points="${pts}" fill="#f8fafc" stroke="#202b36" stroke-width="1.5" />
-    <text x="${toSvgX(centerX).toFixed(1)}" y="${toSvgY(centerY).toFixed(1)}" 
-          font-family="Public Sans, sans-serif" font-size="11" font-weight="600" 
+    <!-- Face: ${escapeXml(face.id)} -->
+    <polygon data-face-id="${escapeXml(face.id)}" points="${pts}" fill="#f8fafc" stroke="#202b36" stroke-width="1.5" />
+    <text x="${toSvgX(centerX).toFixed(1)}" y="${toSvgY(centerY).toFixed(1)}"
+          font-family="Public Sans, sans-serif" font-size="11" font-weight="600"
           text-anchor="middle" dominant-baseline="middle" fill="#202b36">
-      ${face.name}
+      ${escapeXml(face.name)}
     </text>
-    <text x="${toSvgX(centerX).toFixed(1)}" y="${(toSvgY(centerY) + 14).toFixed(1)}" 
-          font-family="Public Sans, sans-serif" font-size="9" 
+    <text x="${toSvgX(centerX).toFixed(1)}" y="${(toSvgY(centerY) + 14).toFixed(1)}"
+          font-family="Public Sans, sans-serif" font-size="9"
           text-anchor="middle" dominant-baseline="middle" fill="#64748b">
       ${face.width} × ${face.height} mm
     </text>`);
@@ -49,21 +78,17 @@ export function generateSvgNet(study: CartonStudy, margin = 20): string {
 
   // Draw 5 hinge fold lines as dashed
   const hingeLines: string[] = [
-    // base-north: between (-W/2, D/2) and (W/2, D/2)
-    `<line x1="${toSvgX(-W / 2).toFixed(1)}" y1="${toSvgY(D / 2).toFixed(1)}" x2="${toSvgX(W / 2).toFixed(1)}" y2="${toSvgY(D / 2).toFixed(1)}" stroke="#235bd4" stroke-width="1.5" stroke-dasharray="4,3" />`,
-    // base-south: between (-W/2, -D/2) and (W/2, -D/2)
-    `<line x1="${toSvgX(-W / 2).toFixed(1)}" y1="${toSvgY(-D / 2).toFixed(1)}" x2="${toSvgX(W / 2).toFixed(1)}" y2="${toSvgY(-D / 2).toFixed(1)}" stroke="#235bd4" stroke-width="1.5" stroke-dasharray="4,3" />`,
-    // base-east: between (W/2, D/2) and (W/2, -D/2)
-    `<line x1="${toSvgX(W / 2).toFixed(1)}" y1="${toSvgY(D / 2).toFixed(1)}" x2="${toSvgX(W / 2).toFixed(1)}" y2="${toSvgY(-D / 2).toFixed(1)}" stroke="#235bd4" stroke-width="1.5" stroke-dasharray="4,3" />`,
-    // base-west: between (-W/2, D/2) and (-W/2, -D/2)
-    `<line x1="${toSvgX(-W / 2).toFixed(1)}" y1="${toSvgY(D / 2).toFixed(1)}" x2="${toSvgX(-W / 2).toFixed(1)}" y2="${toSvgY(-D / 2).toFixed(1)}" stroke="#235bd4" stroke-width="1.5" stroke-dasharray="4,3" />`,
-    // north-lid: between (-W/2, D/2 + H) and (W/2, D/2 + H)
-    `<line x1="${toSvgX(-W / 2).toFixed(1)}" y1="${toSvgY(D / 2 + H).toFixed(1)}" x2="${toSvgX(W / 2).toFixed(1)}" y2="${toSvgY(D / 2 + H).toFixed(1)}" stroke="#235bd4" stroke-width="1.5" stroke-dasharray="4,3" />`
+    `<line data-hinge-id="base-north" x1="${toSvgX(-W / 2).toFixed(1)}" y1="${toSvgY(D / 2).toFixed(1)}" x2="${toSvgX(W / 2).toFixed(1)}" y2="${toSvgY(D / 2).toFixed(1)}" stroke="#235bd4" stroke-width="1.5" stroke-dasharray="4,3" />`,
+    `<line data-hinge-id="base-south" x1="${toSvgX(-W / 2).toFixed(1)}" y1="${toSvgY(-D / 2).toFixed(1)}" x2="${toSvgX(W / 2).toFixed(1)}" y2="${toSvgY(-D / 2).toFixed(1)}" stroke="#235bd4" stroke-width="1.5" stroke-dasharray="4,3" />`,
+    `<line data-hinge-id="base-east" x1="${toSvgX(W / 2).toFixed(1)}" y1="${toSvgY(D / 2).toFixed(1)}" x2="${toSvgX(W / 2).toFixed(1)}" y2="${toSvgY(-D / 2).toFixed(1)}" stroke="#235bd4" stroke-width="1.5" stroke-dasharray="4,3" />`,
+    `<line data-hinge-id="base-west" x1="${toSvgX(-W / 2).toFixed(1)}" y1="${toSvgY(D / 2).toFixed(1)}" x2="${toSvgX(-W / 2).toFixed(1)}" y2="${toSvgY(-D / 2).toFixed(1)}" stroke="#235bd4" stroke-width="1.5" stroke-dasharray="4,3" />`,
+    `<line data-hinge-id="north-lid" x1="${toSvgX(-W / 2).toFixed(1)}" y1="${toSvgY(D / 2 + H).toFixed(1)}" x2="${toSvgX(W / 2).toFixed(1)}" y2="${toSvgY(D / 2 + H).toFixed(1)}" stroke="#235bd4" stroke-width="1.5" stroke-dasharray="4,3" />`
   ];
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${totalWidth.toFixed(1)} ${totalHeight.toFixed(1)}" width="${totalWidth.toFixed(1)}mm" height="${totalHeight.toFixed(1)}mm">
   <title>Carton Net Plan (${W} × ${D} × ${H} mm)</title>
+  <desc>Conceptual zero-thickness six-face carton net study (not a manufacturing die-line).</desc>
   <defs>
     <style>
       .cut-line { stroke: #202b36; stroke-width: 1.5; fill: none; }

@@ -18,7 +18,7 @@
     "dev": "vite --host 127.0.0.1",
     "typecheck": "tsc --noEmit",
     "test": "npm run typecheck && node scripts/check.mjs test",
-    "build": "npm run typecheck && vite build && node scripts/check.mjs html",
+    "build": "npm run typecheck && vite build --configLoader runner && node scripts/check.mjs html",
     "preview": "vite preview --host 127.0.0.1",
     "demo": "node scripts/check.mjs demo"
   },

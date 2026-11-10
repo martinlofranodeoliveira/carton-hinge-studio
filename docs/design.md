@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-`carton-hinge-studio` is a browser-local React and Three.js application powered by an independent analytical kinematics core (`deriveCartonStudy`). The application decouples 3D WebGL rendering, 2D vector SVG generation, and numerical seam verification into clean modular layers.
+`carton-hinge-studio` is a browser-local React and Three.js application powered by a UI-independent analytical kinematics core (`deriveCartonStudy`). The application decouples 3D WebGL rendering, 2D vector SVG generation, and numerical seam verification into clean modular layers.
 
 ```
                          +-----------------------------+
@@ -52,9 +52,17 @@
 ## 3. Rendering Architecture
 
 - **Three.js WebGL Maquette**:
-  - Demand rendering via `frameloop="demand"` ensures zero CPU/GPU overhead when idle.
+  - Demand rendering uses `frameloop="demand"`; no zero-overhead or GPU benchmark guarantee is made.
   - Double-sided materials prevent inside-face disappearing during partial fold inspections.
   - Distinct pastel color palette enables immediate visual identification of all six carton faces.
 - **Linked 2D SVG Net**:
   - Dynamically computes bounding coordinates.
-  - Emits standards-compliant SVG with solid cut borders and dashed fold creases.
+  - Emits a fixed, XML-parsed SVG subset with solid cut borders and dashed fold creases.
+
+## Source hardening boundaries
+
+Face-local corner identities are unchanged. Mesh triangles reverse that local corner order so their computed normals agree with the explicit outward normal (negative local Z). The camera fits a bounding sphere against both perspective axes using the actual viewport aspect. Backing-buffer admission accounts for minimum one-pixel dimensions and extreme aspect ratios without multiplying two potentially overflowing CSS dimensions.
+
+Camera input is leased only after opt-in and released on Escape/blur/fallback/unmount. WebGL context listeners are detached on replacement/unmount. Owned Three geometries, line geometries and materials have explicit, idempotent CPU-side disposal paths. Real WebGL/GPU resource reclamation is not inferred from those tests.
+
+Imports use a byte ceiling and monotonic request epoch. Typed diagnostics are translated at render time, so a later locale switch cannot leave an obsolete translated message. Source-only tests use real React DOM/JSDOM with globals initialized before ReactDOM; they are not a browser renderer.

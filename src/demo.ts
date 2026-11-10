@@ -1,4 +1,6 @@
+import {parseCliArguments} from './core/cliArguments';
 import { deriveCartonStudy } from './core/carton';
+import { parseCartonStudyJson, serializeCartonStudyJson } from './core/studyIo';
 import { generateSvgNet } from './core/svg';
 import { validateDimensions, validateFoldTicks } from './core/validator';
 
@@ -12,7 +14,9 @@ export function runDemo(assertMode = false, jsonMode = false): void {
   // Scenario 3: Fully closed box (t = 1000, 90 degrees)
   const studyClosed = deriveCartonStudy({ width: 120, depth: 80, height: 40 }, 1000);
 
-  // Scenario 4: Bounds validation rejection
+  // Scenario 4: Portable JSON round-trip and bounds validation rejection
+  const exportedJson = serializeCartonStudyJson(studyClosed, 'lid');
+  const parsedJson = parseCartonStudyJson(exportedJson);
   const invalidDimErr = validateDimensions({ width: 0, depth: 80, height: 40 });
   const invalidFoldErr = validateFoldTicks(1500);
 
@@ -29,12 +33,15 @@ export function runDemo(assertMode = false, jsonMode = false): void {
       throw new Error('Flat state must not be marked closed');
     }
 
-    // Assert 2: Partial fold continuity
+    // Assert 2: Partial fold continuity and persistent hinge coincidence
     if (Math.abs(studyMid.foldFraction - 0.5) > 1e-9) {
       throw new Error(`Partial fold fraction mismatch: ${studyMid.foldFraction}`);
     }
+    if (studyMid.maxHingeGap > studyMid.tolerance) {
+      throw new Error(`Persistent hinge gap exceeded at half fold: ${studyMid.maxHingeGap}`);
+    }
 
-    // Assert 3: Closed state seam closure within tolerance
+    // Assert 3: Closed state geometric coincidence within tolerance across all 12 physical edges
     if (!studyClosed.isFullyClosed) {
       throw new Error(
         `Closed state failed to close: maxGap=${studyClosed.maxSeamGap}, tol=${studyClosed.tolerance}`
@@ -45,8 +52,17 @@ export function runDemo(assertMode = false, jsonMode = false): void {
         throw new Error(`Seam ${seam.id} failed closure: maxGap=${seam.maxGap}`);
       }
     }
+    if (Object.keys(studyClosed.faceEdges).length !== 24) {
+      throw new Error('Expected 24 face-edge identities');
+    }
+    if (Object.keys(studyClosed.physicalEdges).length !== 12) {
+      throw new Error('Expected 12 paired physical-edge identities');
+    }
 
-    // Assert 4: Bounds rejection
+    // Assert 4: Portable JSON round-trip and bounds rejection
+    if (!parsedJson.ok || parsedJson.status !== 'ValidStudy') {
+      throw new Error('Portable study JSON round-trip failed');
+    }
     if (!invalidDimErr || !invalidFoldErr) {
       throw new Error('Boundary validation failed to reject invalid values');
     }
@@ -65,7 +81,8 @@ export function runDemo(assertMode = false, jsonMode = false): void {
         dimensions: studyMid.dimensions,
         foldTicks: studyMid.foldTicks,
         isFullyClosed: studyMid.isFullyClosed,
-        maxSeamGap: studyMid.maxSeamGap
+        maxSeamGap: studyMid.maxSeamGap,
+        maxHingeGap: studyMid.maxHingeGap
       },
       scenario3_closed: {
         dimensions: studyClosed.dimensions,
@@ -74,7 +91,8 @@ export function runDemo(assertMode = false, jsonMode = false): void {
         maxSeamGap: studyClosed.maxSeamGap,
         tolerance: studyClosed.tolerance
       },
-      scenario4_rejection: {
+      scenario4_validation: {
+        roundTripStatus: parsedJson.status,
         invalidDimensionError: invalidDimErr,
         invalidFoldTicksError: invalidFoldErr
       }
@@ -88,55 +106,29 @@ export function runDemo(assertMode = false, jsonMode = false): void {
     console.log('\n=== Scenario 2: Half Fold (t = 500, 45°) ===');
     console.log(`Fold fraction: ${studyMid.foldFraction} | Max seam gap: ${studyMid.maxSeamGap.toFixed(2)} mm`);
 
-    console.log('\n=== Scenario 3: Fully Closed Box (t = 1000, 90°) ===');
+    console.log('\n=== Scenario 3: Closed Carton Geometry (t = 1000, 90°) ===');
     console.log(`Max seam gap: ${studyClosed.maxSeamGap.toExponential(3)} mm (tolerance: ${studyClosed.tolerance.toExponential(3)} mm)`);
-    console.log(`All 7 closure seams sealed: ${studyClosed.isFullyClosed ? 'YES' : 'NO'}`);
+    console.log(`All 7 closure seams coincident: ${studyClosed.isFullyClosed ? 'YES' : 'NO'}`);
 
-    console.log('\n=== Scenario 4: Validation Bounds Rejection ===');
+    console.log('\n=== Scenario 4: Validation Bounds & Portable JSON ===');
+    console.log(`Portable JSON round-trip: ${parsedJson.status}`);
     console.log(`Width 0: rejected (${invalidDimErr})`);
     console.log(`Fold ticks 1500: rejected (${invalidFoldErr})`);
   }
 }
 
-// CLI argument parsing
-const args = process.argv.slice(2);
-if (args[0] === 'demo' || args.length === 0 || args.includes('--assert') || args.includes('--json')) {
-  const assertMode = args.includes('--assert');
-  const jsonMode = args.includes('--json');
-  runDemo(assertMode, jsonMode);
-} else if (args[0] === 'study') {
-  let width = 120;
-  let depth = 80;
-  let height = 40;
-  let fold = 1000;
-  let format = 'text';
-
-  for (const arg of args.slice(1)) {
-    if (arg.startsWith('--width=')) width = parseInt(arg.slice(8), 10);
-    if (arg.startsWith('--depth=')) depth = parseInt(arg.slice(8), 10);
-    if (arg.startsWith('--height=')) height = parseInt(arg.slice(9), 10);
-    if (arg.startsWith('--fold=')) fold = parseInt(arg.slice(7), 10);
-    if (arg.startsWith('--format=')) format = arg.slice(9);
-  }
-
-  const study = deriveCartonStudy({ width, depth, height }, fold);
-  if (format === 'json') {
-    console.log(JSON.stringify(study, null, 2));
-  } else if (format === 'svg') {
-    console.log(generateSvgNet(study));
+// CLI arguments are fully validated before any result is printed.
+try {
+  const options = parseCliArguments(process.argv.slice(2));
+  if (options.mode === 'demo') {
+    runDemo(options.assert, options.json);
   } else {
-    console.log(`Carton Study: ${width}x${depth}x${height} mm (fold: ${fold}/1000)`);
-    console.log(`Closed: ${study.isFullyClosed} (max seam gap: ${study.maxSeamGap.toFixed(4)} mm)`);
+    const study = deriveCartonStudy({ width: options.width, depth: options.depth, height: options.height }, options.fold);
+    if (options.mode === 'svg' || options.format === 'svg') console.log(generateSvgNet(study));
+    else if (options.format === 'json') console.log(serializeCartonStudyJson(study, 'lid').trimEnd());
+    else console.log(`Carton Study: ${options.width}x${options.depth}x${options.height} mm (fold: ${options.fold}/1000)\nClosed: ${study.isFullyClosed} (max seam gap: ${study.maxSeamGap.toFixed(4)} mm)`);
   }
-} else if (args[0] === 'svg') {
-  let width = 120;
-  let depth = 80;
-  let height = 40;
-  for (const arg of args.slice(1)) {
-    if (arg.startsWith('--width=')) width = parseInt(arg.slice(8), 10);
-    if (arg.startsWith('--depth=')) depth = parseInt(arg.slice(8), 10);
-    if (arg.startsWith('--height=')) height = parseInt(arg.slice(9), 10);
-  }
-  const study = deriveCartonStudy({ width, depth, height }, 0);
-  console.log(generateSvgNet(study));
+} catch {
+  console.error('Invalid command or study parameters. Use demo [--assert] [--json], study --width=N --depth=N --height=N --fold=N --format=text|json|svg, or svg --width=N --depth=N --height=N.');
+  process.exitCode = 2;
 }

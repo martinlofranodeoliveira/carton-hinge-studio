@@ -1,72 +1,85 @@
 import React from 'react';
-import { CartonStudy } from '../core/types';
+import { CartonStudy, Locale, SeamId } from '../core/types';
+import { FACE_SHORT_LABELS, HINGE_LABELS, SEAM_LABELS, UI_TEXT } from '../core/i18n';
 
 interface SeamInspectorProps {
+  locale: Locale;
   study: CartonStudy;
 }
 
-export const SeamInspector: React.FC<SeamInspectorProps> = ({ study }) => {
-  const { seams, isFullyClosed, maxSeamGap, tolerance } = study;
+export const SeamInspector: React.FC<SeamInspectorProps> = ({ locale, study }) => {
+  const t = UI_TEXT[locale];
+  const { physicalEdges, isFullyClosed, maxSeamGap, tolerance } = study;
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      gap: '8px',
-      background: '#ffffff',
-      borderRadius: '8px',
-      border: '1px solid #e2e8f0',
-      padding: '12px'
-    }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <h3 style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: '#1e293b' }}>
-          Acompanhamento de Arestas (7 Junções)
-        </h3>
-        <span style={{
-          fontSize: '11px',
-          fontWeight: 600,
-          padding: '2px 8px',
-          borderRadius: '999px',
-          backgroundColor: isFullyClosed ? '#dcfce7' : '#fef9c3',
-          color: isFullyClosed ? '#15803d' : '#854d0e'
-        }}>
-          {isFullyClosed ? 'Totalmente Fechada' : `Folga Máx: ${maxSeamGap.toFixed(2)} mm`}
+    <div className="chs-card" data-testid="seam-inspector">
+      <div className="chs-card-header">
+        <h3 className="chs-card-title">{t.seamInspectorTitle}</h3>
+        <span
+          data-testid="seam-summary-badge"
+          style={{
+            fontSize: '0.875rem',
+            fontWeight: 700,
+            padding: '2px 8px',
+            borderRadius: '999px',
+            backgroundColor: isFullyClosed ? 'var(--chs-coincident-bg)' : 'var(--chs-open-bg)',
+            color: isFullyClosed ? 'var(--chs-coincident-fg)' : 'var(--chs-open-fg)'
+          }}
+        >
+          {isFullyClosed
+            ? t.seamClosedBadge
+            : `${t.seamMaxGapBadge}: ${maxSeamGap.toFixed(2)} mm`}
         </span>
       </div>
 
       <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', fontSize: '11px', borderCollapse: 'collapse', textAlign: 'left' }}>
+        <table className="chs-table" data-testid="physical-edges-table">
           <thead>
-            <tr style={{ borderBottom: '1px solid #e2e8f0', color: '#64748b' }}>
-              <th style={{ padding: '4px 6px' }}>Junção</th>
-              <th style={{ padding: '4px 6px' }}>Faces</th>
-              <th style={{ padding: '4px 6px' }}>Folga (mm)</th>
-              <th style={{ padding: '4px 6px' }}>Status</th>
+            <tr>
+              <th scope="col">{t.colEdge}</th>
+              <th scope="col">{t.colKind}</th>
+              <th scope="col">{t.colFaces}</th>
+              <th scope="col">{t.colGap}</th>
+              <th scope="col">{t.colState}</th>
             </tr>
           </thead>
           <tbody>
-            {Object.values(seams).map(seam => (
-              <tr key={seam.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                <td style={{ padding: '4px 6px', fontWeight: 500, color: '#334155' }}>{seam.id}</td>
-                <td style={{ padding: '4px 6px', color: '#64748b' }}>{seam.faceA} ↔ {seam.faceB}</td>
-                <td style={{ padding: '4px 6px', fontFamily: 'monospace' }}>
-                  {seam.maxGap < 1e-4 ? '0.0000' : seam.maxGap.toFixed(2)}
-                </td>
-                <td style={{ padding: '4px 6px' }}>
-                  <span style={{
-                    color: seam.isClosed ? '#16a34a' : '#d97706',
-                    fontWeight: 600
-                  }}>
-                    {seam.isClosed ? 'Vedado' : 'Aberto'}
-                  </span>
-                </td>
-              </tr>
-            ))}
+            {Object.values(physicalEdges).map(pair => {
+              const pairTitle =
+                pair.kind === 'hinge'
+                  ? HINGE_LABELS[pair.id as keyof typeof HINGE_LABELS][locale]
+                  : SEAM_LABELS[pair.id as SeamId][locale];
+              return (
+                <tr key={pair.id} data-testid={`edge-row-${pair.id}`}>
+                  <td style={{ fontWeight: 600 }} title={pairTitle}>
+                    {pair.id}
+                  </td>
+                  <td>{pair.kind === 'hinge' ? t.kindHinge : t.kindSeam}</td>
+                  <td>
+                    {FACE_SHORT_LABELS[pair.faceA][locale]} ↔ {FACE_SHORT_LABELS[pair.faceB][locale]}
+                  </td>
+                  <td style={{ fontFamily: 'monospace' }}>
+                    {pair.maxGap < 1e-4 ? '0.0000' : pair.maxGap.toFixed(2)}
+                  </td>
+                  <td>
+                    <span
+                      style={{
+                        color: pair.isCoincident ? 'var(--chs-coincident-fg)' : 'var(--chs-open-fg)',
+                        fontWeight: 700
+                      }}
+                    >
+                      {pair.isCoincident ? t.stateCoincident : t.stateOpen}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
-      <div style={{ fontSize: '10px', color: '#94a3b8' }}>
-        Tolerância numérica de fechamento: {tolerance.toExponential(2)} mm
+
+      <div style={{ fontSize: '0.875rem', color: '#526273', marginTop: '8px' }}>
+        {t.toleranceCaption}: {tolerance.toExponential(2)} mm
       </div>
     </div>
   );

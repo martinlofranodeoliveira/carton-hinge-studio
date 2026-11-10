@@ -37,14 +37,14 @@
 
 1. **Three-Column Drafting Workbench**:
    - Column 1 (380px): Dimension sliders, preset dimensions, fold percentage, and 2D SVG Net viewer.
-   - Column 2 (Flexible): 3D Articulated Three.js Canvas with smooth orbital inspection.
+   - Column 2 (Flexible): 3D Articulated Three.js Canvas with explicit opt-in orbital inspection.
    - Column 3 (340px): Selected face normal/corner inspector and 7-seam closure gap table.
 2. **Keyboard Accessibility**:
-   - All sliders and buttons are fully navigable via `Tab` and operable via `Arrow` keys.
-   - Contrast ratios exceed WCAG AA requirements across text, buttons, and status badges.
+   - Native sliders/buttons and SVG Enter/Space handlers are provided. Actual browser tab order, touch gestures and screen-reader behavior remain unverified.
+   - Text contrast and focus styling are source design goals; rendered contrast, keyboard flow and accessibility conformance remain unverified.
 3. **Performance & Demand Rendering**:
-   - R3F Canvas configured with `frameloop="demand"` ensures zero unnecessary GPU cycles when static.
-   - Memory disposal on component unmount prevents GPU memory leaks.
+   - R3F Canvas configured with `frameloop="demand"` requests frames on demand; actual GPU behavior has not been measured.
+   - Resource disposal calls run on unmount/replacement; actual driver reclamation requires separate browser evidence.
 
 ---
 
@@ -54,4 +54,4 @@
 
 - **Kinematic Integrity**: All 7 seams close to within $10^{-9} \times \max(W, D, H)$ at $t = 1000$.
 - **Offline Determinism**: The entire test suite and build pipeline pass inside `node:22-bookworm-slim` with network disabled (`--network none`).
-- **Verdict**: Verified, reviewed, and ready for public release under MIT License © 2026 Lofrano Tecnologia.
+- **Verdict**: Source geometry, DOM and native build evidence are recorded separately. Actual browser/WebGL interaction, responsive screenshots, accessibility conformance and visual finish remain pending; no visual approval is claimed. Original source MIT © 2026 Lofrano Tecnologia.

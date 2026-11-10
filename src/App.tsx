@@ -1,7 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
+import './styles.css';
+import { X } from 'lucide-react';
 import { deriveCartonStudy } from './core/carton';
 import { generateSvgNet } from './core/svg';
-import { CartonDimensions, FaceId } from './core/types';
+import { parseCartonStudyJson, serializeCartonStudyJson } from './core/studyIo';
+import { CartonDimensions, FaceId, Locale, MAX_STUDY_JSON_BYTES, StudyDiagnosticCode } from './core/types';
+import { formatDiagnosticMessage, UI_TEXT } from './core/i18n';
 import { Toolbar } from './components/Toolbar';
 import { CartonScene } from './components/CartonScene';
 import { NetViewer } from './components/NetViewer';
@@ -9,6 +13,7 @@ import { SeamInspector } from './components/SeamInspector';
 import { FaceInspector } from './components/FaceInspector';
 
 export const App: React.FC = () => {
+  const [locale, setLocale] = useState<Locale>('pt-BR');
   const [dimensions, setDimensions] = useState<CartonDimensions>({
     width: 120,
     depth: 80,
@@ -16,156 +21,245 @@ export const App: React.FC = () => {
   });
   const [foldTicks, setFoldTicks] = useState<number>(500);
   const [selectedFace, setSelectedFace] = useState<FaceId | null>('lid');
+  const [diagnosticError, setDiagnosticError] = useState<{ code: StudyDiagnosticCode; field?: string } | null>(null);
+
+  // Monotonic counter to guard against stale async file reads
+  const asyncEpochRef = useRef<number>(0);
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.lang = locale;
+    }
+  }, [locale]);
 
   const study = useMemo(() => {
     return deriveCartonStudy(dimensions, foldTicks);
   }, [dimensions, foldTicks]);
 
+  const t = UI_TEXT[locale];
+
+  useEffect(() => () => { asyncEpochRef.current += 1; }, []);
+
+  const bumpEpoch = () => {
+    asyncEpochRef.current += 1;
+    return asyncEpochRef.current;
+  };
+
+  const handleDimensionsChange = (nextDims: CartonDimensions) => {
+    bumpEpoch();
+    setDimensions(nextDims);
+  };
+
+  const handleFoldTicksChange = (nextTicks: number) => {
+    bumpEpoch();
+    setFoldTicks(nextTicks);
+  };
+
+  const handleApplyPreset = (nextDims: CartonDimensions, nextTicks: number) => {
+    bumpEpoch();
+    setDimensions(nextDims);
+    setFoldTicks(nextTicks);
+  };
+
+  const handleSelectFace = (face: FaceId) => { bumpEpoch(); setSelectedFace(face); };
+  const download = (content: string, type: string, filename: string) => {
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const link = document.createElement('a');
+    try {
+      link.href = url; link.download = filename;
+      document.body.appendChild(link); link.click();
+    } finally { link.remove(); URL.revokeObjectURL(url); }
+  };
+
   const handleExportSvg = () => {
-    const svgContent = generateSvgNet(study);
-    const blob = new Blob([svgContent], { type: 'image/svg+xml;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `carton-net-${dimensions.width}x${dimensions.depth}x${dimensions.height}.svg`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const svgContent = generateSvgNet(study);
+      download(svgContent, 'image/svg+xml;charset=utf-8', `carton-net-${dimensions.width}x${dimensions.depth}x${dimensions.height}.svg`);
+    } catch {
+      setDiagnosticError({ code: 'EXPORT_FAILED' });
+    }
   };
 
   const handleExportJson = () => {
-    const jsonContent = JSON.stringify(study, null, 2);
-    const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `carton-study-${dimensions.width}x${dimensions.depth}x${dimensions.height}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const jsonContent = serializeCartonStudyJson(study, selectedFace);
+      download(jsonContent, 'application/json;charset=utf-8', `carton-study-${dimensions.width}x${dimensions.depth}x${dimensions.height}.json`);
+    } catch {
+      setDiagnosticError({ code: 'EXPORT_FAILED' });
+    }
+  };
+
+  const handleImportJsonFile = async (file: File) => {
+    const requestEpoch = bumpEpoch();
+
+    // Pre-read byte ceiling check
+    if (file.size > MAX_STUDY_JSON_BYTES) {
+      setDiagnosticError({ code: 'BYTE_LIMIT_EXCEEDED' });
+      return;
+    }
+    if (file.size === 0) {
+      setDiagnosticError({ code: 'EMPTY_DOCUMENT' });
+      return;
+    }
+
+    let bytes: Uint8Array;
+    try {
+      bytes = new Uint8Array(await file.arrayBuffer());
+    } catch {
+      if (asyncEpochRef.current !== requestEpoch) return;
+      setDiagnosticError({ code: 'READ_FAILED' });
+      return;
+    }
+
+    // Discard stale async completion if user mutated state or started a newer import
+    if (asyncEpochRef.current !== requestEpoch) {
+      return;
+    }
+
+    const result = parseCartonStudyJson(bytes);
+    if (!result.ok) {
+      setDiagnosticError({ code: result.code, field: result.field });
+      return;
+    }
+
+    setDiagnosticError(null);
+    setDimensions(result.document.dimensions);
+    setFoldTicks(result.document.foldTicks);
+    if (result.document.selectedFace !== undefined) {
+      setSelectedFace(result.document.selectedFace);
+    }
   };
 
   const handleReset = () => {
+    bumpEpoch();
+    setDiagnosticError(null);
     setDimensions({ width: 120, depth: 80, height: 40 });
     setFoldTicks(500);
     setSelectedFace('lid');
   };
 
+  const statusLabel = study.isFullyClosed
+    ? t.statusClosed
+    : foldTicks === 0
+      ? t.statusFlat
+      : t.statusArticulated;
+
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100vh',
-      backgroundColor: '#f1f5f9',
-      color: '#0f172a',
-      fontFamily: '"Public Sans", system-ui, -apple-system, sans-serif'
-    }}>
+    <div className="chs-app">
       {/* Header */}
-      <header style={{
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        padding: '12px 24px',
-        backgroundColor: '#ffffff',
-        borderBottom: '1px solid #e2e8f0'
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <h1 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#1e293b' }}>
-            Carton Hinge Studio
-          </h1>
-          <span style={{ fontSize: '12px', padding: '2px 8px', borderRadius: '4px', backgroundColor: '#e2e8f0', color: '#475569' }}>
-            v0.1.0
-          </span>
+      <header className="chs-header">
+        <div className="chs-brand">
+          <h1 className="chs-title">Carton Hinge Studio</h1>
+          <span className="chs-version">v0.1.0</span>
+          <p className="chs-subtitle">{t.subtitle}</p>
         </div>
-        <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: '#64748b' }}>
-          <span>Dimensões: <strong>{dimensions.width} × {dimensions.depth} × {dimensions.height} mm</strong></span>
-          <span>Dobra: <strong>{((foldTicks / 1000) * 90).toFixed(1)}°</strong></span>
-          <span>Status: <strong style={{ color: study.isFullyClosed ? '#16a34a' : '#d97706' }}>
-            {study.isFullyClosed ? 'Vedado' : 'Articulado'}
-          </strong></span>
+
+        <div className="chs-header-meta">
+          <span>
+            {t.headerDimensions}:{' '}
+            <strong data-testid="header-dimensions-readout">
+              {dimensions.width} × {dimensions.depth} × {dimensions.height} mm
+            </strong>
+          </span>
+          <span>
+            {t.headerFold}:{' '}
+            <strong data-testid="header-fold-readout">
+              {((foldTicks / 1000) * 90).toFixed(1)}°
+            </strong>
+          </span>
+          <span>
+            {t.headerStatus}:{' '}
+            <strong
+              data-testid="header-status-readout"
+              style={{
+                color: study.isFullyClosed ? 'var(--chs-coincident-fg)' : 'var(--chs-open-fg)'
+              }}
+            >
+              {statusLabel}
+            </strong>
+          </span>
+          <button
+            type="button"
+            data-testid="locale-toggle-button"
+            aria-label={t.langSwitchAria}
+            onClick={() => setLocale(prev => (prev === 'pt-BR' ? 'en' : 'pt-BR'))}
+            className="chs-btn"
+          >
+            {t.langSwitchLabel}
+          </button>
         </div>
       </header>
 
-      {/* Main Workspace */}
-      <main style={{
-        display: 'grid',
-        gridTemplateColumns: '380px 1fr 340px',
-        gap: '16px',
-        padding: '16px',
-        flex: 1,
-        overflow: 'hidden'
-      }}>
-        {/* Left Column: Controls & 2D Net */}
-        <section style={{ display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto' }}>
+      {/* Diagnostic Banner */}
+      {diagnosticError && (
+        <div role="alert" className="chs-alert" data-testid="diagnostic-alert">
+          <span>{formatDiagnosticMessage(diagnosticError.code, locale, diagnosticError.field)}</span>
+          <button
+            type="button"
+            className="chs-btn"
+            onClick={() => setDiagnosticError(null)}
+            data-testid="dismiss-alert-button"
+            aria-label={t.dismissError}
+          >
+            <X size={16} aria-hidden="true" />
+          </button>
+        </div>
+      )}
+
+      {/* Main Drafting Workspace */}
+      <main className="chs-workspace">
+        {/* Left Column: Parameter Toolbar & Linked 2D SVG Net */}
+        <section className="chs-col-left">
           <Toolbar
+            locale={locale}
             dimensions={dimensions}
             foldTicks={foldTicks}
-            onDimensionsChange={setDimensions}
-            onFoldTicksChange={setFoldTicks}
+            onDimensionsChange={handleDimensionsChange}
+            onFoldTicksChange={handleFoldTicksChange}
+            onApplyPreset={handleApplyPreset}
+            onValidationError={code => { bumpEpoch(); setDiagnosticError({ code }); }}
+            onClearError={() => setDiagnosticError(null)}
             onExportSvg={handleExportSvg}
             onExportJson={handleExportJson}
+            onImportJsonFile={handleImportJsonFile}
             onReset={handleReset}
           />
           <NetViewer
+            locale={locale}
             study={study}
             selectedFace={selectedFace}
-            onSelectFace={setSelectedFace}
+            onSelectFace={handleSelectFace}
           />
         </section>
 
-        {/* Center Column: 3D Articulated Maquette */}
-        <section style={{
-          display: 'flex',
-          flexDirection: 'column',
-          backgroundColor: '#ffffff',
-          borderRadius: '8px',
-          border: '1px solid #e2e8f0',
-          position: 'relative'
-        }}>
-          <div style={{
-            position: 'absolute',
-            top: '12px',
-            left: '12px',
-            zIndex: 10,
-            fontSize: '12px',
-            fontWeight: 600,
-            color: '#475569',
-            backgroundColor: 'rgba(255,255,255,0.85)',
-            padding: '4px 8px',
-            borderRadius: '4px',
-            backdropFilter: 'blur(4px)'
-          }}>
-            Vista 3D Dinâmica (WebGL)
-          </div>
+        {/* Center Column: 3D Articulated Technical Maquette (or 2D Isometric Fallback) */}
+        <section className="chs-col-center">
           <CartonScene
+            locale={locale}
             study={study}
             selectedFace={selectedFace}
-            onSelectFace={setSelectedFace}
+            onSelectFace={handleSelectFace}
           />
         </section>
 
-        {/* Right Column: Seam Table & Face Details */}
-        <section style={{ display: 'flex', flexDirection: 'column', gap: '16px', overflowY: 'auto' }}>
+        {/* Right Column: Face/Hinge Inspector & 12 Paired Physical Edges Table */}
+        <section className="chs-col-right">
           <FaceInspector
+            locale={locale}
             study={study}
             selectedFace={selectedFace}
           />
           <SeamInspector
+            locale={locale}
             study={study}
           />
         </section>
       </main>
 
       {/* Footer */}
-      <footer style={{
-        padding: '8px 24px',
-        backgroundColor: '#ffffff',
-        borderTop: '1px solid #e2e8f0',
-        display: 'flex',
-        justifyContent: 'space-between',
-        fontSize: '12px',
-        color: '#64748b'
-      }}>
-        <span>Planificação cinemática com fechamento milimétrico exato e modelo de 5 vincos.</span>
-        <span>© 2026 Lofrano Tecnologia · Software Livre (MIT)</span>
+      <footer className="chs-footer">
+        <span>{t.conceptualDisclaimer}</span>
+        <span>{t.footerCopyright}</span>
       </footer>
     </div>
   );

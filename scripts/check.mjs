@@ -29,12 +29,32 @@ if (mode === 'test') {
       emptyOutDir: true,
       minify: false,
       rollupOptions: {
-        input: { core: 'tests/core.test.ts', seam: 'tests/seam.test.ts' },
+        input: {
+          core: 'tests/core.test.ts',
+          reference: 'tests/reference.test.ts',
+          cli: 'tests/cli.test.ts',
+          legacy: 'tests/legacy-core.test.ts',
+          seam: 'tests/seam.test.ts',
+          io: 'tests/io.test.ts',
+          scene: 'tests/scene.test.ts',
+          dom: 'tests/dom.test.tsx'
+        },
         output: { entryFileNames: '[name].mjs' }
       }
     }
   });
-  execute(['--test', '--test-timeout=30000', 'build/checks/node/core.mjs', 'build/checks/node/seam.mjs']);
+  execute([
+    '--test',
+    '--test-timeout=30000',
+    'build/checks/node/core.mjs',
+    'build/checks/node/reference.mjs',
+    'build/checks/node/cli.mjs',
+    'build/checks/node/legacy.mjs',
+    'build/checks/node/seam.mjs',
+    'build/checks/node/io.mjs',
+    'build/checks/node/scene.mjs',
+    'build/checks/node/dom.mjs'
+  ]);
 } else if (mode === 'demo') {
   await build({
     configFile: false,

@@ -12,3 +12,9 @@ Development version; no release or deployment is asserted.
 - High-contrast 2D planar net SVG viewer fallback for systems without WebGL support.
 - Bilingual interface (PT-BR default and English toggle) with full accessibility support.
 - Comprehensive test suite covering geometric bounds, hinge rotations, coordinate transforms, and seam convergence tolerances ($\le 10^{-9} \times \max(W, D, H)$).
+
+### Development source hardening
+
+- Added strict bounded UTF-8 portable studies, localized failure recovery and stale-import protection.
+- Matched actual mesh winding to outward normals, bounded extreme viewport policies and fitted portrait cameras.
+- Added camera/context cleanup, idempotent disposal, preserved original tests and explicit technical-versus-browser evidence limits.
